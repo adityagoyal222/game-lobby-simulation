@@ -1,0 +1,12 @@
+# Kafka dependencies
+kafka-python==2.0.2
+confluent-kafka==2.3.0
+
+# Database dependencies (Peewee ORM - simple and lightweight)
+peewee==3.17.0
+psycopg2-binary==2.9.9
+
+# Utility dependencies
+python-dotenv==1.0.0
+pydantic==2.5.3
+-e .
