@@ -1,26 +1,22 @@
-# GAME LOBBY SIMULATION 
-###### (Name Subject To Change)
+# Game Matchmaking System with Google Pub/Sub
 
-Just a simple project that tries to create a matchmaking system for a 2-fighter co-op game.
+A real-time matchmaking system built with Google Cloud Platform, using Pub/Sub for message queuing and Cloud Run for serverless compute.
 
+## Architecture
 
-## Folder structure
-```
-.
-├── requirements.py       # List of packages         
-├── setup.py              # Makes the folders discoverable
-├── SETUP.md              # Setup Guide
-├── README.md             # Documentation
-└── src                   # Source files
-    ├── clients           # Configuration files for clients (db, kafka, etc)
-    ├── matchmaking       # Code that runs on the matchmaking server
-    ├── models            # Models/Tables for database
-    ├── scripts           # Scripts to perform infrequent tasks
-    └── simulator         # Code that runs on the streaming server
-```
+- **Publisher (Streamer)**: Cloud Run service that reads users from Cloud SQL and publishes to Pub/Sub
+- **Subscriber (Consumer)**: Cloud Run service that consumes messages and performs matchmaking
+- **Message Queue**: Google Pub/Sub (fully managed, no infrastructure needed)
+- **Database**: Cloud SQL (PostgreSQL)
 
-## Tools Used
-- Cloud Provider: GCP
-- Database: Cloud SQL/Postgres
-- Streaming/Message Broker: Apache Kafka
-- ORM: peewee
+## Quick Start
+
+See [GCP_SETUP.md](./GCP_SETUP.md) for complete infrastructure setup.
+
+## Key Features
+
+- ✅ Fully serverless - scales to zero when not in use
+- ✅ No VPC configuration needed
+- ✅ Automatic credential management via IAM
+- ✅ Built-in message retry and dead-letter queues
+- ✅ Simple monitoring via GCP Console

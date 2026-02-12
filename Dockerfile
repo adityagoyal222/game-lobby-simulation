@@ -1,24 +1,33 @@
-FROM --platform=linux/amd64 python:3.12.7-slim as base
+FROM --platform=linux/amd64 python:3.11-slim as base
 
 WORKDIR /app
 COPY setup.py .
 COPY requirements.txt .
-COPY .env .
+COPY .env /app/.env
 
-# Install common dependencies
+# Install dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Build streamer
 FROM base as streamer
-ARG SERVICE=streamer
 COPY . .
+RUN pip install --no-cache-dir -e .
 ENV PYTHONPATH=/app
-CMD ["sh", "-c", "python src/scripts/init_db.py && python src/scripts/data_gen.py --clean && exec python src/simulator/data_streamer.py"]
+ENV PYTHONUNBUFFERED=1
+CMD ["sh", "-c", "\
+    python -m http.server 8080 --bind 0.0.0.0 2>&1 > /dev/null & \
+    python -u src/scripts/init_db.py && \
+    python -u src/scripts/data_gen.py --players 500 && \
+    exec python -u src/simulator/data_streamer.py"]
 
-# Build consumer  
+# Build consumer
 FROM base as consumer
-ARG SERVICE=consumer
 COPY . .
+RUN pip install --no-cache-dir -e .
 ENV PYTHONPATH=/app
-CMD ["sh", "-c", "python src/scripts/init_db.py && exec python src/matchmaking/matchmaking_consumer.py"]
+ENV PYTHONUNBUFFERED=1
+CMD ["sh", "-c", "\
+    python -m http.server 8080 --bind 0.0.0.0 2>&1 > /dev/null & \
+    python -u src/scripts/init_db.py || true && \
+    exec python -u src/matchmaking/consumer.py"]
