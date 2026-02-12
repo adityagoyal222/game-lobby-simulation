@@ -1,196 +1,90 @@
 """
-Kafka Consumer for Matchmaking System
-Consumes users from Kafka and sends them to matchmaking algorithm
-Ultra simplified: Just read users and pass to blackbox algorithm
+Matchmaking Consumer using Google Pub/Sub
 """
 import logging
+import json
 import signal
-from typing import Optional, Callable
-from kafka import KafkaConsumer
-from kafka.errors import KafkaError
-from src.clients.kafka_config import KafkaConfig
-from src.clients.database import connect_db, init_db
-from src.models.user_model import UserModel
+import sys
+from concurrent import futures
+from google.cloud import pubsub_v1
+from src.clients.pubsub_config import PubSubConfig
+from src.matchmaking.matchmaking_algorithm import MatchmakingAlgorithm
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 class MatchmakingConsumer:
-    """
-    Kafka consumer that reads users and sends to matchmaking algorithm
-    Simplified: Reads UserModel JSON, passes to callback (blackbox algorithm)
-    """
-
-    def __init__(
-        self,
-        config: Optional[KafkaConfig] = None,
-        matchmaking_callback: Optional[Callable[[UserModel], None]] = None
-    ):
-        """
-        Initialize Kafka consumer
-
-        Args:
-            config: KafkaConfig object, if None will load from environment
-            matchmaking_callback: Function called for each user received.
-                                 This is your blackbox matchmaking algorithm.
-        """
-        self.config = config or KafkaConfig.from_env()
-        self.consumer: Optional[KafkaConsumer] = None
-        self.matchmaking_callback = matchmaking_callback
-
-        # Initialize database connection
-        logger.info("Connecting to database...")
-        if connect_db():
-            init_db()
-        else:
-            raise RuntimeError("Failed to connect to database")
-
+    def __init__(self, config: PubSubConfig = None):
+        self.config = config or PubSubConfig.from_env()
+        self.subscriber = None
+        self.subscription_path = None
+        self.matchmaker = MatchmakingAlgorithm()
         self.is_running = False
-        self.is_connected = False
-        self.users_processed = 0
+        self.messages_processed = 0
 
-    def connect(self) -> bool:
-        """
-        Establish connection to Kafka broker
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
 
-        Returns:
-            True if connection successful, False otherwise
-        """
+    def _signal_handler(self, signum, frame):
+        logger.info(f"Received signal {signum}, shutting down...")
+        self.stop()
+        sys.exit(0)
+
+    def _callback(self, message: pubsub_v1.subscriber.message.Message):
         try:
-            logger.info(f"Connecting to Kafka at {self.config.bootstrap_servers}...")
+            user_data = json.loads(message.data.decode("utf-8"))
+            logger.info(f"Received user: {user_data.get('user_id')}")
 
-            consumer_config = self.config.get_consumer_config()
+            self.matchmaker.get_user(user_data)
+            
+            message.ack()
+            self.messages_processed += 1
 
-            self.consumer = KafkaConsumer(
-                self.config.topic_matchmaking,
-                **consumer_config,
-                value_deserializer=lambda v: v.decode('utf-8'),
-                key_deserializer=lambda k: k.decode('utf-8') if k else None,
+            if self.messages_processed % 10 == 0:
+                logger.info(f"Processed {self.messages_processed} messages")
+
+        except Exception as e:
+            logger.error(f"Error processing message: {e}")
+            message.nack()
+
+    def start(self):
+        logger.info("Starting Pub/Sub consumer...")
+        try:
+            self.subscriber = pubsub_v1.SubscriberClient()
+            self.subscription_path = self.subscriber.subscription_path(
+                self.config.project_id, self.config.subscription_id
             )
 
-            self.is_connected = True
-            logger.info(f"Kafka consumer connected successfully to topic: {self.config.topic_matchmaking}")
-            return True
+            self.is_running = True
+            logger.info(f"Listening on subscription: {self.config.subscription_id}")
 
-        except KafkaError as e:
-            logger.error(f"Failed to connect to Kafka: {e}")
-            self.is_connected = False
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error connecting to Kafka: {e}")
-            self.is_connected = False
-            return False
+            streaming_pull_future = self.subscriber.subscribe(
+                self.subscription_path, callback=self._callback
+            )
 
-    def _process_user(self, user: UserModel) -> None:
-        """
-        Process a user from Kafka - send to matchmaking algorithm
-
-        Args:
-            user: UserModel to process
-        """
-        try:
-            if self.matchmaking_callback:
-                self.matchmaking_callback(user)
-            self.users_processed += 1
-        except Exception as e:
-            logger.error(f"Error processing user: {e}", exc_info=True)
-
-    def start(self) -> None:
-        """
-        Start consuming messages from Kafka
-        """
-        if not self.is_connected:
-            logger.error("Consumer not connected. Call connect() first.")
-            return
-
-        if self.is_running:
-            logger.warning("Consumer is already running")
-            return
-
-        self.is_running = True
-
-        logger.info("Starting matchmaking consumer...")
-        logger.info("Waiting for users... (Press Ctrl+C to stop)")
-
-        try:
-            for message in self.consumer:
-                if not self.is_running:
-                    break
-
+            with futures.ThreadPoolExecutor(max_workers=10) as executor:
                 try:
-                    # Deserialize user from JSON
-                    user = UserModel.from_json(message.value)
-
-                    logger.info(
-                        f"Received user {user.user_id} "
-                        f"(MMR: {user.mmr}, Region: {user.region})"
-                    )
-
-                    # Send to matchmaking algorithm
-                    self._process_user(user)
-
-                    # Log status periodically
-                    if self.users_processed % 10 == 0:
-                        logger.info(f"Processed {self.users_processed} users so far")
-
+                    streaming_pull_future.result()
                 except Exception as e:
-                    logger.error(f"Error processing message: {e}", exc_info=True)
-                    continue
+                    logger.error(f"Streaming pull error: {e}")
+                    streaming_pull_future.cancel()
+                    streaming_pull_future.result()
 
-        except KeyboardInterrupt:
-            logger.info("Received interrupt signal")
+        except Exception as e:
+            logger.error(f"Failed to start consumer: {e}")
         finally:
             self.stop()
 
-    def stop(self) -> None:
-        """Stop consuming messages and cleanup"""
+    def stop(self):
         if not self.is_running:
             return
-
-        logger.info("Stopping matchmaking consumer...")
         self.is_running = False
-
-        if self.consumer:
-            self.consumer.close()
-            logger.info("Kafka consumer closed")
-
-        logger.info(f"Total users processed: {self.users_processed}")
-
-    def get_stats(self) -> dict:
-        """
-        Get consumer statistics
-
-        Returns:
-            Dictionary with consumer statistics
-        """
-        return {
-            "users_processed": self.users_processed,
-            "is_running": self.is_running,
-            "is_connected": self.is_connected
-        }
-
-    def __enter__(self):
-        """Context manager entry"""
-        self.connect()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit"""
-        self.stop()
+        logger.info(f"Stopping (processed {self.messages_processed} messages)")
+        if self.subscriber:
+            self.subscriber.close()
 
 
-def setup_signal_handlers(consumer: MatchmakingConsumer) -> None:
-    """
-    Setup signal handlers for graceful shutdown
-
-    Args:
-        consumer: MatchmakingConsumer instance
-    """
-    def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}")
-        consumer.stop()
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
+if __name__ == "__main__":
+    consumer = MatchmakingConsumer()
+    consumer.start()

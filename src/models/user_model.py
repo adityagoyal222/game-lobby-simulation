@@ -1,12 +1,12 @@
 """
 User Model - Single unified model for both ORM and data transfer
-Combines Peewee database model with JSON serialization for Kafka
+Combines SQLAlchemy database model with JSON serialization for Kafka
 """
 import json
 from enum import Enum
-from peewee import Model, CharField, IntegerField, BooleanField, DateTimeField
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, Index
 from datetime import datetime
-from src.clients.database import db
+from src.clients.database import Base
 
 
 class Region(str, Enum):
@@ -25,25 +25,24 @@ class Region(str, Enum):
     OCE = "Oceania"
 
 
-class UserModel(Model):
+class UserModel(Base):
     """Database model for users - also used as data transfer object"""
-    user_id = CharField(primary_key=True, max_length=255)
-    mmr = IntegerField(index=True)
-    region = CharField(max_length=50, index=True)
-    games_played = IntegerField(default=0)
-    level = IntegerField(default=1)
-    ingame = BooleanField(default=False, index=True)
-    created_at = DateTimeField(default=datetime.now)
-    updated_at = DateTimeField(default=datetime.now)
-
-    class Meta:
-        database = db
-        table_name = 'users'
-
-    def save(self, *args, **kwargs):
-        """Override save to update timestamp"""
-        self.updated_at = datetime.now()
-        return super().save(*args, **kwargs)
+    __tablename__ = 'users'
+    
+    user_id = Column(String(255), primary_key=True)
+    mmr = Column(Integer, index=True, nullable=False)
+    region = Column(String(50), index=True, nullable=False)
+    games_played = Column(Integer, default=0, nullable=False)
+    level = Column(Integer, default=1, nullable=False)
+    ingame = Column(Boolean, default=False, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    
+    __table_args__ = (
+        Index('idx_mmr', 'mmr'),
+        Index('idx_region', 'region'),
+        Index('idx_ingame', 'ingame'),
+    )
 
     def to_json(self) -> str:
         """Serialize user to JSON string for Kafka"""

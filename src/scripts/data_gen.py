@@ -7,8 +7,8 @@ Usage: python -m src.scripts.data_gen
 import uuid
 import random
 import sys
-from peewee import fn
-from src.clients.database import connect_db, init_db
+from sqlalchemy import func
+from src.clients.database import connect_db, init_db, get_session
 from src.models.user_model import UserModel, Region
 from dotenv import load_dotenv
 
@@ -61,62 +61,67 @@ def populate_database(num_players: int = NUM_PLAYERS, batch_size: int = 100):
         num_players: Number of players to generate
         batch_size: Number of records to insert at once
     """
+    print("=" * 60)
+    print("DATA GENERATION")
+    print("=" * 60)
     print(f"Generating {num_players} synthetic players...")
 
-    # Connect to database
-    if not connect_db():
-        print("Failed to connect to database")
-        return False
-
-    # Initialize tables
-    print("Initializing database tables...")
-    init_db()
 
     # Generate and insert players in batches
-    print(f"Inserting players into database (batch size: {batch_size})...")
+    print(f"\nInserting players into database (batch size: {batch_size})...")
 
     inserted = 0
     batch = []
+    session = get_session()
 
     for i in range(num_players):
         player = generate_player()
-        batch.append(player)
+        batch.append(UserModel(**player))
 
         # Insert batch when it reaches batch_size or at the end
         if len(batch) >= batch_size or i == num_players - 1:
             try:
                 # Bulk insert
-                UserModel.insert_many(batch).execute()
+                session.bulk_save_objects(batch)
+                session.commit()
                 inserted += len(batch)
                 print(f" Inserted {inserted}/{num_players} players...")
                 batch = []
             except Exception as e:
                 print(f"Error inserting batch: {e}")
+                session.rollback()
                 batch = []
 
-    print(f"\nSuccessfully inserted {inserted} players into the database!")
+    print(f"\nSUCCESS: Inserted {inserted} players into the database!")
 
     # Show statistics
     print("\nDatabase Statistics:")
     for region in regions:
-        count = UserModel.select().where(UserModel.region == region.value).count()
+        count = session.query(UserModel).filter(UserModel.region == region.value).count()
         percentage = (count / inserted * 100) if inserted > 0 else 0
         print(f"  {region.value:10s}: {count:4d} players ({percentage:.1f}%)")
 
-    avg_mmr = UserModel.select(fn.AVG(UserModel.mmr)).scalar()
+    avg_mmr = session.query(func.avg(UserModel.mmr)).scalar()
     print(f"\nAverage MMR: {avg_mmr:.0f}")
+    print("=" * 60)
+
+    session.close()
 
     return True
 
 
 def clear_database():
-    """Clear all users from the database (use with caution!)"""
-    response = input("Are you sure you want to delete ALL users? (yes/no): ")
-    if response.lower() == "yes":
-        count = UserModel.delete().execute()
+    """Clear all users from the database"""
+    session = get_session()
+    try:
+        count = session.query(UserModel).delete()
+        session.commit()
         print(f"Deleted {count} users from database")
-    else:
-        print("Operation cancelled")
+    except Exception as e:
+        print(f"Could not clear database (table may not exist yet): {e}")
+        session.rollback()
+    finally:
+        session.close()
 
 
 if __name__ == "__main__":
@@ -147,7 +152,7 @@ if __name__ == "__main__":
         print("Failed to connect to database. Check your .env configuration.")
         sys.exit(1)
 
-    # Clear database if requested
+    # Clear database if requested (tables already created by init_db.py)
     if args.clear or args.clear_only:
         clear_database()
 

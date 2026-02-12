@@ -1,10 +1,10 @@
-# Kafka dependencies
-kafka-python==2.0.2
-confluent-kafka==2.3.0
+# Google Pub/Sub
+google-cloud-pubsub==2.19.0
 
-# Database dependencies (Peewee ORM - simple and lightweight)
-peewee==3.17.0
-psycopg2-binary==2.9.9
+# Database dependencies (SQLAlchemy ORM)
+sqlalchemy==2.0.25
+pg8000==1.31.2
+cloud-sql-python-connector==1.13.0
 
 # Utility dependencies
 python-dotenv==1.0.0
