@@ -10,6 +10,9 @@ from src.models.user_model import user_from_dict
 import random
 import threading
 
+from src.game_outcome.game_outcome import GameOutcomeService
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -129,16 +132,21 @@ class MatchmakingAlgorithm:
             # Resolve match outside lock 
             players = (incoming, match)
             try:
-                winner = random.choice(players)
-                loser = match if winner is incoming else incoming
+                outcome_service = GameOutcomeService()
+                result = outcome_service.run_match(incoming.user_id, match.user_id, delay_seconds=2)
 
-                winner_new = max(0, winner.mmr + 25)
-                loser_new = max(0, loser.mmr - 25)
+                logger.info(
+                    "Match resolved via GameOutcomeService",
+                    extra={
+                        "player_a": incoming.user_id,
+                        "player_b": match.user_id,
+                        "winner": result.winner_id,
+                        "loser": result.loser_id,
+                        "finish": result.finish_type,
+                    }
+                )
 
-                self._update_after_game(session, winner.user_id, winner_new)
-                self._update_after_game(session, loser.user_id, loser_new)
 
-                logger.info("Match resolved", extra={"player_a": incoming.user_id, "player_b": match.user_id, "winner": winner.user_id})
             except Exception as e:
                 logger.exception("Error resolving match", exc_info=e, extra={"player_a": incoming.user_id, "player_b": getattr(match, 'user_id', None)})
 
