@@ -61,15 +61,6 @@ def populate_database(num_players: int = NUM_PLAYERS, batch_size: int = 100):
         num_players: Number of players to generate
         batch_size: Number of records to insert at once
     """
-    print("=" * 60)
-    print("DATA GENERATION")
-    print("=" * 60)
-    print(f"Generating {num_players} synthetic players...")
-
-
-    # Generate and insert players in batches
-    print(f"\nInserting players into database (batch size: {batch_size})...")
-
     inserted = 0
     batch = []
     session = get_session()
@@ -85,25 +76,13 @@ def populate_database(num_players: int = NUM_PLAYERS, batch_size: int = 100):
                 session.bulk_save_objects(batch)
                 session.commit()
                 inserted += len(batch)
-                print(f" Inserted {inserted}/{num_players} players...")
                 batch = []
             except Exception as e:
                 print(f"Error inserting batch: {e}")
                 session.rollback()
                 batch = []
 
-    print(f"\nSUCCESS: Inserted {inserted} players into the database!")
-
-    # Show statistics
-    print("\nDatabase Statistics:")
-    for region in regions:
-        count = session.query(UserModel).filter(UserModel.region == region.value).count()
-        percentage = (count / inserted * 100) if inserted > 0 else 0
-        print(f"  {region.value:10s}: {count:4d} players ({percentage:.1f}%)")
-
-    avg_mmr = session.query(func.avg(UserModel.mmr)).scalar()
-    print(f"\nAverage MMR: {avg_mmr:.0f}")
-    print("=" * 60)
+    print(f"Data generated successfully: {inserted} players inserted")
 
     session.close()
 
@@ -151,6 +130,8 @@ if __name__ == "__main__":
     if not connect_db():
         print("Failed to connect to database. Check your .env configuration.")
         sys.exit(1)
+    
+    print("Database initialized")
 
     # Clear database if requested (tables already created by init_db.py)
     if args.clear or args.clear_only:

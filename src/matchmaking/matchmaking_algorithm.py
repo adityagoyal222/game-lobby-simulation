@@ -26,15 +26,12 @@ class MatchmakingAlgorithm:
         user = session.query(UserModel).filter_by(user_id=user_id).first()
         try:
             if not user:
-                logger.warning("_set_ingame: user not found in DB", extra={"user_id": user_id})
                 return None
             user.ingame = ingame
             session.add(user)
             session.commit()
-            logger.debug("Set ingame status", extra={"user_id": user_id, "ingame": ingame})
             return user
         except Exception as e:
-            logger.exception("Failed to set ingame status", exc_info=e, extra={"user_id": user_id})
             try:
                 session.rollback()
             except Exception:
@@ -45,7 +42,6 @@ class MatchmakingAlgorithm:
         user = session.query(UserModel).filter_by(user_id=user_id).first()
         try:
             if not user:
-                logger.warning("_update_after_game: user not found in DB", extra={"user_id": user_id})
                 return None
             old_mmr = user.mmr
             user.mmr = new_mmr
@@ -53,10 +49,8 @@ class MatchmakingAlgorithm:
             user.ingame = False
             session.add(user)
             session.commit()
-            logger.info("Updated user after game", extra={"user_id": user_id, "old_mmr": old_mmr, "new_mmr": new_mmr})
             return user
         except Exception as e:
-            logger.exception("Failed to update user after game", exc_info=e, extra={"user_id": user_id, "new_mmr": new_mmr})
             try:
                 session.rollback()
             except Exception:
@@ -85,13 +79,10 @@ class MatchmakingAlgorithm:
         return best
 
     def get_user(self, user_data: Dict) -> None:
-        logger.info("Processing user for matchmaking", extra={"user_id": user_data.get('user_id')})
-
         session = None
         try:
             session = database.get_session()
             if session is None:
-                logger.error("No DB session available; skipping user", extra={"user_id": user_data.get('user_id')})
                 return
 
             # Mark user as ingame=True 
@@ -103,7 +94,6 @@ class MatchmakingAlgorithm:
 
             # If already in a game, skip
             if db_user.ingame:
-                logger.info("User already ingame; skipping", extra={"user_id": db_user.user_id})
                 return
 
             self._set_ingame(session, db_user.user_id, True)
@@ -121,7 +111,6 @@ class MatchmakingAlgorithm:
                 if not match:
                     # No suitable match -> enqueue
                     q.append(incoming)
-                    logger.info("Enqueued user", extra={"user_id": incoming.user_id, "mmr": incoming.mmr, "region": region, "queue_size": len(q)})
                     return
 
                 q.remove(match)
@@ -138,12 +127,12 @@ class MatchmakingAlgorithm:
                 self._update_after_game(session, winner.user_id, winner_new)
                 self._update_after_game(session, loser.user_id, loser_new)
 
-                logger.info("Match resolved", extra={"player_a": incoming.user_id, "player_b": match.user_id, "winner": winner.user_id})
+                logger.info(f"Match: {incoming.user_id} matched with {match.user_id} | Winner: {winner.user_id}")
             except Exception as e:
-                logger.exception("Error resolving match", exc_info=e, extra={"player_a": incoming.user_id, "player_b": getattr(match, 'user_id', None)})
+                pass
 
         except Exception as e:
-            logger.error(f"Error in matchmaking.get_user: {e}")
+            pass
         finally:
             if session:
                 try:

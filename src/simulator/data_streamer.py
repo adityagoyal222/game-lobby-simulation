@@ -48,24 +48,16 @@ class DataStreamer:
             return []
 
     def start(self):
-        logger.info("=" * 60)
-        logger.info("DATA STREAMER STARTING")
-        logger.info("=" * 60)
-
         if not connect_db():
             logger.error("FAILED: Could not connect to database")
             return
-        logger.info("SUCCESS: Database connection established")
 
         self.publisher = MatchmakingPublisher()
         if not self.publisher.connect():
             logger.error("FAILED: Could not connect to Pub/Sub")
             return
-        logger.info("SUCCESS: Pub/Sub connection established")
 
         self.is_running = True
-        logger.info(f"Streaming users every {self.min_interval}-{self.max_interval}s")
-        logger.info("=" * 60)
         session = get_session()
 
         try:
@@ -78,9 +70,7 @@ class DataStreamer:
                 user = random.choice(users)
                 if self.publisher.publish_user(user):
                     self.users_sent += 1
-                    logger.info(f"Published user {user.user_id[:8]}... (MMR: {user.mmr}, Region: {user.region})")
-                    if self.users_sent % 10 == 0:
-                        logger.info(f">>> Total published: {self.users_sent} users <<<")
+                    logger.info(f"Streamed user: {user.user_id} (MMR: {user.mmr}, Region: {user.region})")
 
                 time.sleep(random.uniform(self.min_interval, self.max_interval))
 
@@ -94,7 +84,6 @@ class DataStreamer:
         if not self.is_running:
             return
         self.is_running = False
-        logger.info(f"Stopping (published {self.users_sent} users)")
         if self.publisher:
             self.publisher.close()
 
