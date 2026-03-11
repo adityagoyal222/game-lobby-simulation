@@ -9,6 +9,7 @@ from concurrent import futures
 from google.cloud import pubsub_v1
 from src.clients.pubsub_config import PubSubConfig
 from src.matchmaking.matchmaking_algorithm import MatchmakingAlgorithm
+from src.clients import database
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -51,6 +52,9 @@ class MatchmakingConsumer:
     def start(self):
         logger.info("Starting Pub/Sub consumer...")
         try:
+            if not database.connect_db():
+                logger.error("FAILED: Could not connect to database")
+                return
             self.subscriber = pubsub_v1.SubscriberClient()
             self.subscription_path = self.subscriber.subscription_path(
                 self.config.project_id, self.config.subscription_id
